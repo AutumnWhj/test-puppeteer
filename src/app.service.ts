@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import puppeteer, { Page } from 'puppeteer';
+import puppeteer from 'puppeteer';
 
+const sleep = (ms: number) => {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+};
 @Injectable()
 export class AppService {
   getHello(): string {
@@ -12,9 +15,6 @@ export class AppService {
     const browser = await puppeteer.launch({ devtools: true });
     const page = await browser.newPage();
 
-    // 模拟 iPhone X 设备
-    // await page.emulate(puppeteer.devices['iPhone X']);
-
     // 设置Authorization token
     await page.goto(TARGET_URL);
     await page.evaluate((token: string) => {
@@ -24,64 +24,53 @@ export class AppService {
 
     // 点击底部立即购买按钮
     await page.waitForSelector('.bottom-right');
-    console.log('准备点击立即购买按钮');
-    await page.click('.bottom-right');
-    console.log('已点击立即购买按钮');
-    // 自动跳转到创建订单页
-    // 判断手机号码是否已经填写
-    // 判断qq号码是否已经填写
-    // 判断是否同意了买家协议
-    // 等待新页面加载
-    await page.waitForNavigation();
-    await page.waitForSelector('.uni-input-input');
-    await page.evaluate(async () => {
-      const Node: any = Array.from(
-        document.querySelectorAll('.right-box > .fill-input .uni-input-input'),
-      );
-      const [phoneNode, qqNode, codeNode] = Node;
-      console.log(12312312, Node);
-      phoneNode.value = '13077776666';
-      qqNode.value = '123456789';
-      codeNode.value = '33';
-      return true;
+    const hasSales = await page.evaluate(() => {
+      const el = document.querySelector('.bottom-right .u-btn');
+      return !el.classList.contains('u-btn--primary--disabled');
     });
 
-    console.log('准备点击立即购买按钮');
-    // await page.click('.bottom-right');
-    // let isAgreed = await page.evaluate(() => {
-    //   return document.querySelector('#agreement-checkbox').checked;
-    // });
-    // if (!isAgreed) {
-    //   // 自动勾选同意买家协议
-    //   await page.click('#agreement-checkbox');
+    if (!hasSales) {
+      return '商品已下架或已售完';
+    }
 
-    //   // 提交订单前确认购买
-    //   const [confirmButton] = await page.$x(
-    //     '//button[contains(text(), "确认购买")]',
-    //   );
-    //   if (confirmButton) {
-    //     await confirmButton.click();
-    //   }
+    await page.click('.bottom-right');
+    // 判断手机 qq号码是否已经填写, 如果没则填入
+    await page.waitForSelector('.uni-input-input');
+    const inputElements = await page.$$('.uni-input-input');
+    const phoneValue = await inputElements[0].getProperty('value');
+    if ((await phoneValue.jsonValue()) === '') {
+      await inputElements[0].type('13077776666');
+    }
+    const qqValue = await inputElements[1].getProperty('value');
+    if ((await qqValue.jsonValue()) === '') {
+      await inputElements[1].type('123456789');
+    }
 
-    //   // 再次检查是否同意了买家协议
-    //   await page.waitForSelector('#submit-order-button');
-    //   isAgreed = await page.evaluate(() => {
-    //     return document.querySelector('#agreement-checkbox').checked;
-    //   });
-    //   if (!isAgreed) {
-    //     throw new Error('Buyer agreement not agreed');
-    //   }
-    // }
+    // 判断是否同意了买家协议
+    const isChecked = await page.evaluate(() => {
+      const element = document.querySelector('.u-checkbox__icon-wrap--checked');
+      return element !== null;
+    });
+    if (!isChecked) {
+      await page.click('.u-checkbox__icon-wrap');
+    }
 
-    // // 提交订单并获取订单号
-    // await page.click('#submit-order-button');
-    // await page.waitForSelector('.payment-success-page');
-    // const orderNumber = await page.evaluate(() => {
-    //   return document.querySelector('.order-number').textContent;
-    // });
+    // 点击立即购买跳转收银台页面
+    await sleep(1000);
+    await page.click('.right-part .u-btn');
 
-    // await browser.close();
-    return '222222222';
-    // return orderNumber;
+    await sleep(1000);
+    await page.evaluate(async () => {
+      const el: any = document.querySelector(
+        '.uni-scroll-view-content .submit',
+      );
+      el.click();
+    });
+
+    await page.waitForNavigation();
+
+    return page.evaluate(() => {
+      return window.location.href;
+    });
   }
 }
